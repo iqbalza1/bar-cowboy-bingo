@@ -11,3 +11,7 @@
   grid-template-columns: 1fr;
 }
 
+/* Hide the manual draw button */
+#draw {
+  display: none !important;
+}
