@@ -1,5 +1,7 @@
 const $=id=>document.getElementById(id),tv=location.pathname==='/tv';let state,authenticated=false,busy=false;
-const stages=['One line','Two lines','Full card'];const label=n=>n?`${'BINGO'[Math.floor((n-1)/15)]} ${n}`:'—';
+const stages=['One line','Two lines','Full card'];
+const label=n=>n?String(n):'—';
+
 document.body.classList.toggle('tv',tv);$('title').textContent=tv?'Eyes down. Good luck.':'Let’s play bingo.';$('tv-link').hidden=tv;
 for(let c=0;c<5;c++){const row=document.createElement('div');row.className='board-row';const letter=document.createElement('strong');letter.textContent='BINGO'[c];row.append(letter);for(let n=c*15+1;n<=c*15+15;n++){const cell=document.createElement('span');cell.id=`n${n}`;cell.textContent=n;row.append(cell);}$('board').append(row);}
 async function api(url,data){const response=await fetch(url,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined,signal:AbortSignal.timeout(8000)});const result=await response.json();if(!response.ok)throw Error(result.error||'Request failed.');return result;}
