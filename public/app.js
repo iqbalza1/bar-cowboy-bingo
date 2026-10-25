@@ -23,3 +23,177 @@ async function action(name,extra={}){if(busy||!state)return;busy=true;render();$
  $('print').onclick=async()=>{try{const result=await api('/api/cards',{count:Number($('strips').value)});const elements=result.strips.map((strip,i)=>{const sheet=document.createElement('section');sheet.className='paper-strip';strip.forEach((card,j)=>{const title=document.createElement('h2');title.textContent='BAR COWBOY · BINGO';const table=document.createElement('table');const head=document.createElement('tr');for(const l of 'BINGO'){const th=document.createElement('th');th.textContent=l;head.append(th);}table.append(head);for(const row of card){const tr=document.createElement('tr');for(const n of row){const td=document.createElement('td');td.textContent=n;tr.append(td);}table.append(tr);}const id=document.createElement('p');id.textContent=`${result.batch} / ${i+1}-${j+1}`;sheet.append(title,table,id);});return sheet;});$('cards').replaceChildren(...elements);$('print-dialog').showModal();}catch(error){$('message').textContent=error.message;}};
  $('do-print').onclick=()=>window.print();$('close-print').onclick=()=>$('print-dialog').close();
  async function start(){try{authenticated=(await api('/api/session')).authenticated;}catch{}await refresh();setInterval(refresh,1500);}start();
+// Automatic calling controls — host screen only.
+if (!tv) {
+  const controls = document.createElement('div');
+  controls.className = 'host-only';
+  controls.hidden = true;
+
+  const intervalLabel = document.createElement('label');
+  intervalLabel.textContent = 'Seconds between calls';
+  intervalLabel.htmlFor = 'auto-seconds';
+
+  const seconds = document.createElement('input');
+  seconds.id = 'auto-seconds';
+  seconds.type = 'number';
+  seconds.min = '3';
+  seconds.max = '120';
+  seconds.value = '10';
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.textContent = 'Start automatic calling';
+
+  controls.append(intervalLabel, seconds, toggle);
+  $('pause').after(controls);
+
+  let running = false;
+  let timeout;
+
+  function stopAuto() {
+    running = false;
+    clearTimeout(timeout);
+    toggle.textContent = 'Start automatic calling';
+    seconds.disabled = false;
+  }
+
+  async function tick() {
+    if (!running) return;
+
+    if (
+      !authenticated ||
+      !state ||
+      state.paused ||
+      state.stage >= 3 ||
+      state.draws.length >= 75 ||
+      !$('connection').classList.contains('live')
+    ) {
+      stopAuto();
+      return;
+    }
+
+    if (!busy) {
+      const previousCount = state.draws.length;
+      await action('draw');
+
+      // Stop if the draw failed or the game finished.
+      if (
+        state.draws.length <= previousCount ||
+        state.stage >= 3 ||
+        state.draws.length >= 75
+      ) {
+        stopAuto();
+        return;
+      }
+    }
+
+    if (running) {
+      timeout = setTimeout(tick, Number(seconds.value) * 1000);
+    }
+  }
+
+  toggle.onclick = () => {
+    if (running) {
+      stopAuto();
+      return;
+    }
+
+    const delay = Number(seconds.value);
+    if (!Number.isInteger(delay) || delay < 3 || delay > 120) {
+      $('message').textContent =
+        'Choose a whole number between 3 and 120 seconds.';
+      return;
+    }
+
+    if (!state || state.paused || state.stage >= 3) {
+      $('message').textContent =
+        'Resume the game or start a new game first.';
+      return;
+    }
+
+    running = true;
+    seconds.disabled = true;
+    toggle.textContent = 'Stop automatic calling';
+
+    // First draw happens after the selected delay.
+    timeout = setTimeout(tick, delay * 1000);
+  };
+
+  // Stop the timer before checking a claim or changing games.
+  $('pause').addEventListener('click', stopAuto);
+  $('winner').addEventListener('click', stopAuto);
+  $('reset').addEventListener('click', stopAuto);
+
+  render();
+}
+
+// English announcements on the host screen only.
+if (!tv && 'speechSynthesis' in window) {
+  const speechButton = document.createElement('button');
+  speechButton.type = 'button';
+  speechButton.textContent = 'Enable English announcements';
+
+  const speechControls = document.createElement('div');
+  speechControls.className = 'host-only';
+  speechControls.hidden = true;
+  speechControls.append(speechButton);
+  $('pause').after(speechControls);
+
+  let speechEnabled = false;
+  let observedGame;
+  let observedCount;
+
+  function announce(text) {
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-GB';
+    utterance.rate = 0.85;
+
+    const voices = window.speechSynthesis.getVoices();
+    const voice =
+      voices.find(v => v.lang === 'en-GB') ||
+      voices.find(v => v.lang.startsWith('en'));
+
+    if (voice) utterance.voice = voice;
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  speechButton.onclick = () => {
+    speechEnabled = !speechEnabled;
+
+    // Start from the current number; don't announce old calls.
+    observedGame = state?.id;
+    observedCount = state?.draws.length;
+
+    speechButton.textContent = speechEnabled
+      ? 'Disable English announcements'
+      : 'Enable English announcements';
+
+    if (speechEnabled) {
+      announce('English announcements enabled.');
+    } else {
+      window.speechSynthesis.cancel();
+    }
+  };
+
+  setInterval(() => {
+    if (!state) return;
+
+    // A new game or initial page load should not read old calls.
+    if (observedGame !== state.id || observedCount === undefined) {
+      observedGame = state.id;
+      observedCount = state.draws.length;
+      return;
+    }
+
+    if (state.draws.length > observedCount && speechEnabled) {
+      announce(`Number ${state.draws.at(-1)}`);
+    }
+
+    observedCount = state.draws.length;
+  }, 300);
+
+  render();
+}
